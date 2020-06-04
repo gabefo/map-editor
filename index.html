@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+        <style>
+            #canvas-container {
+                position: absolute;
+                top: 0;
+                left: 0;
+                bottom: 0;
+                right: 0;
+                background-color: #6a7495;
+                overflow: hidden;
+            }
+            #input-container {
+                display: -webkit-flex;
+                display: -ms-flexbox;
+                display: flex;
+                position: absolute;
+                top: calc(50% + 250px);
+                left: calc(50% - 400px);
+                width: 400px;
+                height: 36px;
+            }
+            #input {
+                display: inline-block;
+                position: relative;
+                width: 200px;
+                line-height: 36px;
+                padding: 0 8px;
+                border: none;
+                border-radius: 4px;
+                outline: none;
+                font-family: Arial, Helvetica, sans-serif;
+                font-size: 14px;
+                color: #ffffff;
+                background-color: rgb(60, 80, 100);
+            }
+            .btn {
+                display: inline-block;
+                position: relative;
+                min-width: 80px;
+                line-height: 36px;
+                padding: 0 16px;
+                border: none;
+                border-radius: 4px;
+                outline: none;
+                font-family: Arial, Helvetica, sans-serif;
+                font-size: 14px;
+                text-align: center;
+                color: #ffffff;
+                background-color: rgb(50, 70, 80);
+                cursor: pointer;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="canvas-container">
+            <canvas id="canvas"></canvas>
+        </div>
+        <div id="input-container">
+            <input id="input">
+            <button class="btn" style="margin-left: 8px;" onclick="load()">Load</button>
+            <button class="btn" style="margin-left: 8px;" onclick="copy()">Copy</button>
+        </div>
+        <script>
+            var Editor = (function () {
+                var canvas = document.getElementById('canvas');
+                var context = canvas.getContext('2d');
+                var lines = [];
+                var centerX = 0;
+                var centerY = 0;
+                function load(xml) {
+                    lines = [];
+                    var minX = Infinity;
+                    var minY = Infinity;
+                    var maxX = -Infinity;
+                    var maxY = -Infinity;
+                    $(xml).find('JD').each(function (index, element) {
+                        var $element = $(element);
+                        if ($element.attr('P1') == null || $element.attr('P2') == null || $element.attr('c') == null) {
+                            return;
+                        }
+                        var p1 = $element.attr('P1').split(',');
+                        var p2 = $element.attr('P2').split(',');
+                        var c = $element.attr('c').split(',');
+                        var x1 = parseInt(p1[0]) || 0;
+                        var y1 = parseInt(p1[1]) || 0;
+                        var x2 = parseInt(p2[0]) || 0;
+                        var y2 = parseInt(p2[1]) || 0;
+                        var color = '#' + c[0];
+                        var width = parseInt(c[1]);
+                        var opacity = parseFloat(c[2]);
+                        var foreground = parseInt(c[3]);
+                        // Calculate bounds
+                        var r = width / 2;
+                        minX = Math.min(minX, Math.min(x1, x2) - r);
+                        minY = Math.min(minY, Math.min(y1, y2) - r);
+                        maxX = Math.max(maxX, Math.max(x1, x2) + r);
+                        maxY = Math.max(maxY, Math.max(y1, y2) + r);
+                        lines.push({ x1, y1, x2, y2, color, width, opacity, foreground });
+                    });
+                    centerX = (minX + maxX) / 2;
+                    centerY = (minY + maxY) / 2;
+                    draw();
+                }
+                function translate(dx, dy) {
+                    if (dx == null) {
+                        dx = 0;
+                    }
+                    if (dy == null) {
+                        dy = 0;
+                    }
+                    for (var i = 0; i < lines.length; i++) {
+                        var line = lines[i];
+                        for (var j = 1; j <= 2; j++) {
+                            line['x' + j] += dx;
+                            line['y' + j] += dy;
+                        }
+                    }
+                    centerX += dx;
+                    centerY += dy;
+                    draw();
+                }
+                function rotate(angle) {
+                    angle *= Math.PI / 180;
+                    var cos = Math.cos(angle);
+                    var sin = Math.sin(angle);
+                    for (var i = 0; i < lines.length; i++) {
+                        var line = lines[i];
+                        for (var j = 1; j <= 2; j++) {
+                            var x = line['x' + j] - centerX;
+                            var y = line['y' + j] - centerY;
+                            line['x' + j] = cos * x + sin * y + centerX;
+                            line['y' + j] = cos * y - sin * x + centerY;
+                        }
+                    }
+                    draw();
+                }
+                function scale(factor) {
+                    for (var i = 0; i < lines.length; i++) {
+                        var line = lines[i];
+                        for (var j = 1; j <= 2; j++) {
+                            line['x' + j] = (line['x' + j] - centerX) * factor + centerX;
+                            line['y' + j] = (line['y' + j] - centerY) * factor + centerY;
+                        }
+                        line.width *= factor;
+                    }
+                    draw();
+                }
+                function draw() {
+                    // Clear the entire canvas
+                    context.save();
+                    context.setTransform(1, 0, 0, 1, 0, 0);
+                    context.clearRect(0, 0, canvas.width, canvas.height);
+                    context.restore();
+                    context.lineCap = 'round';
+                    // Draw lines
+                    for (var i = 0; i < lines.length; i++) {
+                        var line = lines[i];
+                        if (line.width < 1) {
+                            continue;
+                        }
+                        context.beginPath();
+                        context.moveTo(parseInt(line.x1), parseInt(line.y1));
+                        context.lineTo(parseInt(line.x2), parseInt(line.y2));
+                        context.globalAlpha = line.opacity;
+                        context.lineWidth = parseInt(line.width);
+                        context.strokeStyle = line.color;
+                        context.stroke();
+                    }
+                    // Draw map borders
+                    context.globalAlpha = 1;
+                    context.lineWidth = 1;
+                    context.strokeStyle = '#00ffff';
+                    context.strokeRect(0, 0, 800, 400);
+                }
+                function generateXML() {
+                    var xml = '<C><P /><Z><S /><D /><O /><L>';
+                    for (var i = 0; i < lines.length; i++) {
+                        var line = lines[i];
+                        if (line.width < 1) {
+                            continue;
+                        }
+                        xml += '<JD P1="' + parseInt(line.x1) + ',' + parseInt(line.y1) + '" P2="' + parseInt(line.x2) + ',' + parseInt(line.y2) + '" c="' + line.color.slice(1) + ',' + parseInt(line.width) + ',' + line.opacity + ',' + line.foreground + '" />';
+                    }
+                    xml += '</L></Z></C>';
+                    return xml;
+                }
+                function resize() {
+                    var width = window.innerWidth;
+                    var height = window.innerHeight;
+                    canvas.width = width;
+                    canvas.height = height;
+                    context.setTransform(1, 0, 0, 1, width / 2 - 400, height / 2 - 200);
+                    draw();
+                }
+                window.addEventListener('resize', resize);
+                resize();
+                return {
+                    load: load,
+                    translate: translate,
+                    rotate: rotate,
+                    scale: scale,
+                    generateXML: generateXML
+                };
+            })();
+            var input = document.getElementById('input');
+            function load() {
+                Editor.load(input.value);
+            }
+            function copy() {
+                input.select();
+                document.execCommand('copy');
+            }
+            function update() {
+                input.value = Editor.generateXML();
+            }
+            update();
+            document.addEventListener('keydown', function (event) {
+                switch (event.keyCode) {
+                    case 37:
+                        Editor.translate(-1, 0);
+                        break;
+                    case 38:
+                        Editor.translate(0, -1);
+                        break;
+                    case 39:
+                        Editor.translate(1, 0);
+                        break;
+                    case 40:
+                        Editor.translate(0, 1);
+                        break;
+                    case 82:
+                        var angle;
+                        if (event.shiftKey) {
+                            angle = -5;
+                        } else {
+                            angle = 5;
+                        }
+                        Editor.rotate(angle);
+                        break;
+                    case 83:
+                        var scaleFactor;
+                        if (event.shiftKey) {
+                            scaleFactor = 0.9;
+                        } else {
+                            scaleFactor = 1.1;
+                        }
+                        Editor.scale(scaleFactor);
+                        break;
+                    default:
+                        return;
+                }
+                update();
+            });
+            var mouseIsDown = false;
+            var dragged = false;
+            var lastX = 0;
+            var lastY = 0;
+            document.addEventListener('mousedown', function (event) {
+                mouseIsDown = true;
+                lastX = event.clientX;
+                lastY = event.clientY;
+            });
+            document.addEventListener('mouseup', function (event) {
+                if (dragged) {
+                    update();
+                }
+                mouseIsDown = false;
+                dragged = false;
+            });
+            document.addEventListener('mousemove', function (event) {
+                var x = event.clientX;
+                var y = event.clientY;
+                if (mouseIsDown) {
+                    dragged = true;
+                    Editor.translate(x - lastX, y - lastY);
+                }
+                lastX = x;
+                lastY = y;
+            });
+        </script>
+    </body>
+</html>
